@@ -82,22 +82,22 @@ public class AIMovement : MonoBehaviour
 
     Transform GetNextDestFromCurrentDest(Transform currentTransform)
     {
-        Debug.Log(currentTransform.GetSiblingIndex());
+        //Debug.Log(currentTransform.GetSiblingIndex());
         List<float> cumulativeTransitionList = ToCumulativeTransitionList(transitionMatrix[currentTransform.GetSiblingIndex()]);
         
         
         string listString = "";
         transitionMatrix[currentTransform.GetSiblingIndex()].ForEach(item => listString += (item + ", "));
 
-        Debug.Log("list: " + listString);
+        //Debug.Log("list: " + listString);
 
         string listString2 = "";
         cumulativeTransitionList.ForEach(item => listString2 += (item + ", "));
 
-        Debug.Log("cumu list: " + listString2);
+        //Debug.Log("cumu list: " + listString2);
 
         float randNum = Random.Range(0.0001f, 1f); // our random number used to choose which destination next (we make sure it's not 0)
-        Debug.Log(randNum);
+        //Debug.Log(randNum);
 
         int indexToChoose = 0;
 
@@ -119,7 +119,7 @@ public class AIMovement : MonoBehaviour
             }
         }
 
-        Debug.Log("index: " + indexToChoose);
+        //Debug.Log("index: " + indexToChoose);
 
 
         Transform nextDestination = stationList[indexToChoose];
@@ -192,7 +192,7 @@ public class AIMovement : MonoBehaviour
         agent.SamplePathPosition(NavMesh.AllAreas, 0.0f, out navHit);
 
         // sets the speed based on the cost of the terrain beneath agent
-        agent.speed = baseSpeed * 1 / agent.GetAreaCost(GetAreaListFromNavMeshHit(navHit)[0]);
+        agent.speed = baseSpeed * 5 / agent.GetAreaCost(GetAreaListFromNavMeshHit(navHit)[0]);
     }
 
     // function which takes our navhit and produces a list of area indices based on its area mask
