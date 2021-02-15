@@ -19,47 +19,87 @@ public class AIMovement : MonoBehaviour
 
     private List<List<float>> transitionMatrix;
 
+    public int lengthOfPath;
+
+    List<List<float>> CreateUniformTransitionMatrix(int numPoints)
+    {
+        // if there is only 1 point (or no points) we cannot create a useful transition matrix
+        if (numPoints <= 1) return null;
+
+        // create transition matrix
+        List<List<float>> TransitionMatrix = new List<List<float>>();
+
+        // populate each row with a list of floats all the same, except if col == row it is populated with a 0 
+        // float to insert = 1/(numPoints-1) -> will add up to approximately 1
+        for (int row = 0; row < numPoints; row++)
+        {
+            TransitionMatrix.Add(new List<float>());
+            //TransitionMatrix[row] = new List<float>();
+            for (int col = 0; col < numPoints; col++)
+            {
+                if (col != row)
+                {
+                    TransitionMatrix[row].Add(1.0f/(numPoints-1));
+                }
+                else
+                {
+                    TransitionMatrix[row].Add(0f);
+                }
+            }
+        }
+
+        return TransitionMatrix;
+
+        //return new List<List<float>>
+        //{
+        //    new List<float> // probability of A => (A,B,C,D)
+        //    {
+        //        0f, 0.2f, 0.3f, 0.5f
+        //    },
+        //    new List<float> // probability of B => (A,B,C,D)
+        //    {
+        //        0.2f, 0, 0.3f, 0.5f
+        //    },
+        //    new List<float> // probability of C => (A,B,C,D)
+        //    {
+        //        0.3f, 0.2f, 0, 0.5f
+        //    },
+        //    new List<float> // probability of D => (A,B,C,D)
+        //    {
+        //        0.3f, 0.2f, 0.5f, 0
+        //    },
+        //    new List<float> // probability of E => (A,B,C,D)
+        //    {
+        //        0.3f, 0.2f, 0, 0.5f
+        //    },
+        //    new List<float> // probability of F => (A,B,C,D)
+        //    {
+        //        0.2f, 0.3f, 0.5f, 0
+        //    }
+        //};
+    }
+
     void Start()
     {
         hasBegunRoute = false;
         baseSpeed = 5;
         agent = GetComponent<NavMeshAgent>();
 
-        // TODO assert size of this array to number of destinations in editor
-        transitionMatrix = new List<List<float>>
-        {
-            new List<float> // probability of A => (A,B,C,D)
-            {
-                0f, 0.2f, 0.3f, 0.5f
-            },
-            new List<float> // probability of B => (A,B,C,D)
-            {
-                0.2f, 0, 0.3f, 0.5f
-            },
-            new List<float> // probability of C => (A,B,C,D)
-            {
-                0.3f, 0.2f, 0, 0.5f
-            },
-            new List<float> // probability of D => (A,B,C,D)
-            {
-                0.2f, 0.3f, 0.5f, 0
-            }
-        };
-
         stationList = new List<Transform>();
         destinationList = new List<Transform>();
 
-        foreach (Transform destinations in destinations.transform)
+        foreach (Transform dest in destinations.transform)
         {
-            stationList.Add(destinations);
+            stationList.Add(dest);
         }
 
-        int numberOfPaths = 7;
+        // TODO assert size of this array to number of destinations in editor
+        transitionMatrix = CreateUniformTransitionMatrix(stationList.Count);
 
         Transform destination = stationList[0];
         destinationList.Add(destination);
 
-        for (int i = 0; i < numberOfPaths - 1; i++)
+        for (int i = 0; i < lengthOfPath - 1; i++)
         {
             Transform newDestination = GetNextDestFromCurrentDest(destination);
             destinationList.Add(newDestination);
@@ -69,7 +109,7 @@ public class AIMovement : MonoBehaviour
         string listString = "";
         foreach (Transform item in destinationList)
         {
-            listString += (item.gameObject.name + ", ");
+            listString += (item.name + ", ");
         }
         Debug.Log("Final Destination List: " + listString);
 
@@ -84,7 +124,6 @@ public class AIMovement : MonoBehaviour
     {
         //Debug.Log(currentTransform.GetSiblingIndex());
         List<float> cumulativeTransitionList = ToCumulativeTransitionList(transitionMatrix[currentTransform.GetSiblingIndex()]);
-        
         
         string listString = "";
         transitionMatrix[currentTransform.GetSiblingIndex()].ForEach(item => listString += (item + ", "));
@@ -109,9 +148,9 @@ public class AIMovement : MonoBehaviour
                 indexToChoose = i;
                 break;
             }
-            else if (randNum > cumulativeTransitionList[i])
-            {
-            }
+            //else if (randNum > cumulativeTransitionList[i])
+            //{
+            //}
             else if (randNum < cumulativeTransitionList[i])
             {
                 indexToChoose = i;
@@ -120,7 +159,6 @@ public class AIMovement : MonoBehaviour
         }
 
         //Debug.Log("index: " + indexToChoose);
-
 
         Transform nextDestination = stationList[indexToChoose];
 
@@ -176,6 +214,9 @@ public class AIMovement : MonoBehaviour
             currentDestinationIndex++;
             if (currentDestinationIndex < destinationList.Count)
             {
+                // TODO make Agent spend time at destination, trigger looking around animation, and then call the following on timer end:
+                // TODO use expected time for each destination type
+
                 currentDestination = destinationList[currentDestinationIndex];
                 agent.destination = currentDestination.position;
                 Debug.Log("Pathing to Next Destination (Destination " + destinationList[currentDestinationIndex].name + ")");
@@ -184,7 +225,6 @@ public class AIMovement : MonoBehaviour
             else
             {
                 Debug.Log("Path complete, stations visited: " + currentDestinationIndex);
-                //agent.isStopped = true;
             }
         }
 
@@ -192,7 +232,7 @@ public class AIMovement : MonoBehaviour
         agent.SamplePathPosition(NavMesh.AllAreas, 0.0f, out navHit);
 
         // sets the speed based on the cost of the terrain beneath agent
-        agent.speed = baseSpeed * 5 / agent.GetAreaCost(GetAreaListFromNavMeshHit(navHit)[0]);
+        agent.speed = baseSpeed * 2 / agent.GetAreaCost(GetAreaListFromNavMeshHit(navHit)[0]);
     }
 
     // function which takes our navhit and produces a list of area indices based on its area mask
