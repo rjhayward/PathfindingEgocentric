@@ -1,10 +1,14 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Timers;
 using UnityEngine;
 using UnityEngine.AI;
-
+using UnityStandardAssets.Characters.ThirdPerson;
 public class AIMovement : MonoBehaviour
 {
+    public ThirdPersonCharacter character;
+    public Transform head;
+
     public GameObject destinations;
     NavMeshAgent agent;
     private int baseSpeed;
@@ -20,6 +24,18 @@ public class AIMovement : MonoBehaviour
     private List<List<float>> transitionMatrix;
 
     public int lengthOfPath;
+
+    private float TransitionStartTime;
+    private bool IsInTransition;
+
+    private Timer timer;
+
+    private float TimeElapsed;
+
+    private bool isStopped;
+    private int transitionPhase;
+
+    
 
     List<List<float>> CreateUniformTransitionMatrix(int numPoints)
     {
@@ -81,10 +97,18 @@ public class AIMovement : MonoBehaviour
 
     void Start()
     {
+        transitionPhase = 0;
+        isStopped = false;
+        TransitionStartTime = 0f;
+        TimeElapsed = 0f;
+        IsInTransition = false;
         hasBegunRoute = false;
         baseSpeed = 5;
         agent = GetComponent<NavMeshAgent>();
 
+        agent.updateRotation = false;
+        agent.velocity = Vector3.zero;
+        
         stationList = new List<Transform>();
         destinationList = new List<Transform>();
 
@@ -117,7 +141,7 @@ public class AIMovement : MonoBehaviour
         currentDestination = destinationList[currentDestinationIndex];
         agent.destination = currentDestination.position;
         Debug.Log("Pathing to First Destination (Destination " + destinationList[currentDestinationIndex].name + ")");
-        agent.isStopped = false;
+        isStopped = false;
     }
 
     Transform GetNextDestFromCurrentDest(Transform currentTransform)
@@ -184,43 +208,49 @@ public class AIMovement : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+        TimeElapsed += Time.deltaTime;
         if (agent.speed != 0 && agent.remainingDistance != 0) hasBegunRoute = true;
 
         NavMeshPath path = new NavMeshPath();
         agent.CalculatePath(currentDestination.position, path);
 
         // if destination is blocked, then stop the agent
-        if (!agent.isStopped && path.status != NavMeshPathStatus.PathComplete)
+        if (!isStopped && path.status != NavMeshPathStatus.PathComplete)
         {
             agent.ResetPath();
-            agent.isStopped = true;
-
+            isStopped = true;
             Debug.Log("Destination Blocked");
         }
 
         // if destination has become unblocked, then start the agent
-        else if (agent.isStopped && path.status == NavMeshPathStatus.PathComplete)
+        else if (isStopped && path.status == NavMeshPathStatus.PathComplete)
         {
             agent.destination = currentDestination.position;
             //agent.SetPath(path);
             Debug.Log("Destination Found");
-            agent.isStopped = false;
+            isStopped = false;
         }
 
         float dist = agent.remainingDistance;
+
+
+
+        float timeToWait = 4f;
+
         if (hasBegunRoute && dist != Mathf.Infinity && agent.pathStatus == NavMeshPathStatus.PathComplete && dist == 0)
         {
             hasBegunRoute = false;
             currentDestinationIndex++;
             if (currentDestinationIndex < destinationList.Count)
             {
-                // TODO make Agent spend time at destination, trigger looking around animation, and then call the following on timer end:
                 // TODO use expected time for each destination type
 
-                currentDestination = destinationList[currentDestinationIndex];
-                agent.destination = currentDestination.position;
-                Debug.Log("Pathing to Next Destination (Destination " + destinationList[currentDestinationIndex].name + ")");
-                agent.isStopped = false;
+                if (!IsInTransition)
+                {
+                    Debug.Log("Waiting " + timeToWait + " seconds, time elapsed: " + TimeElapsed);
+                    IsInTransition = true;
+                    TransitionStartTime = TimeElapsed;
+                }
             }
             else
             {
@@ -228,12 +258,50 @@ public class AIMovement : MonoBehaviour
             }
         }
 
+
+        if (IsInTransition && (TimeElapsed < (TransitionStartTime + timeToWait / 4f)))
+        {
+            //agent.destination = agent.transform.position + 0.1f*(agent.transform.right + agent.transform.forward);
+            head.transform.Rotate(transform.up, 100f * Time.deltaTime);
+        }
+        else if (IsInTransition && (TimeElapsed < (TransitionStartTime + 3 * timeToWait / 4)))
+        {
+            //agent.destination = agent.transform.position + 0.1f * (agent.transform.right - agent.transform.forward);
+            head.transform.Rotate(transform.up, -100f * Time.deltaTime);
+        }
+        else if(IsInTransition && (TimeElapsed < (TransitionStartTime + timeToWait)))
+        {
+            //agent.destination = agent.transform.position + 0.1f * (-agent.transform.forward);
+            head.transform.Rotate(transform.up, 100f * Time.deltaTime);
+        }
+        if (IsInTransition && (TimeElapsed >= (TransitionStartTime + timeToWait)))
+        {
+            transitionPhase = 0;
+            IsInTransition = false;
+            currentDestination = destinationList[currentDestinationIndex];
+            agent.destination = currentDestination.position;
+            Debug.Log("Pathing to Next Destination (Destination " + destinationList[currentDestinationIndex].name + ")");
+            isStopped = false;
+        }
+
         NavMeshHit navHit;
         agent.SamplePathPosition(NavMesh.AllAreas, 0.0f, out navHit);
 
+        if (!isStopped || IsInTransition)
+        {
+            character.Move(agent.desiredVelocity, false, false);
+        }
+        else if (!IsInTransition)
+        {
+            character.Move(Vector3.zero, false, false);
+        }
+
         // sets the speed based on the cost of the terrain beneath agent
-        agent.speed = baseSpeed * 2 / agent.GetAreaCost(GetAreaListFromNavMeshHit(navHit)[0]);
+        //agent.speed = baseSpeed * 2 / agent.GetAreaCost(GetAreaListFromNavMeshHit(navHit)[0]);
+
     }
+
+
 
     // function which takes our navhit and produces a list of area indices based on its area mask
     List<int> GetAreaListFromNavMeshHit(NavMeshHit navHit)
