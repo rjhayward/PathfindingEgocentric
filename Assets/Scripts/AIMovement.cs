@@ -4,12 +4,29 @@ using System.Timers;
 using UnityEngine;
 using UnityEngine.AI;
 using UnityStandardAssets.Characters.ThirdPerson;
+
+
+
+public struct Floor
+{
+    public float probability { get; set; }
+    public bool baseFloor { get; set; }
+    public int colleagueCount { get; set; }
+}
+
 public class AIMovement : MonoBehaviour
 {
+    const int FloorCount = 6;
+
     public ThirdPersonCharacter character;
     public Transform head;
-
     public GameObject destinations;
+    public int lengthOfPath;
+    public int myFloor;
+    public int colleague1Floor;
+    public int colleague2Floor;
+
+
     NavMeshAgent agent;
     private int baseSpeed;
 
@@ -23,7 +40,6 @@ public class AIMovement : MonoBehaviour
 
     private List<List<float>> transitionMatrix;
 
-    public int lengthOfPath;
 
     private float TransitionStartTime;
     private bool IsInTransition;
@@ -35,7 +51,7 @@ public class AIMovement : MonoBehaviour
     private bool isStopped;
     private int transitionPhase;
 
-    
+
 
     List<List<float>> CreateUniformTransitionMatrix(int numPoints)
     {
@@ -55,7 +71,7 @@ public class AIMovement : MonoBehaviour
             {
                 if (col != row)
                 {
-                    TransitionMatrix[row].Add(1.0f/(numPoints-1));
+                    TransitionMatrix[row].Add(1.0f / (numPoints - 1));
                 }
                 else
                 {
@@ -65,35 +81,211 @@ public class AIMovement : MonoBehaviour
         }
 
         return TransitionMatrix;
-
-        //return new List<List<float>>
-        //{
-        //    new List<float> // probability of A => (A,B,C,D)
-        //    {
-        //        0f, 0.2f, 0.3f, 0.5f
-        //    },
-        //    new List<float> // probability of B => (A,B,C,D)
-        //    {
-        //        0.2f, 0, 0.3f, 0.5f
-        //    },
-        //    new List<float> // probability of C => (A,B,C,D)
-        //    {
-        //        0.3f, 0.2f, 0, 0.5f
-        //    },
-        //    new List<float> // probability of D => (A,B,C,D)
-        //    {
-        //        0.3f, 0.2f, 0.5f, 0
-        //    },
-        //    new List<float> // probability of E => (A,B,C,D)
-        //    {
-        //        0.3f, 0.2f, 0, 0.5f
-        //    },
-        //    new List<float> // probability of F => (A,B,C,D)
-        //    {
-        //        0.2f, 0.3f, 0.5f, 0
-        //    }
-        //};
     }
+
+    List<List<float>> CreateTransitionMatrix(int numPoints, int baseFloor, List<int> colleagueFloors)
+    {
+        // create floor for baseFloor, probability 70%
+        // create floors for colleagueFloors if not empty, split 20% probability between these
+        // create list of floors and populate the rest of the floors with 10% probability split between them
+
+        List<Floor> floors = new List<Floor>();
+        // create floor list
+        for (int i = 0; i < FloorCount; i++)
+        {
+            Floor floor = new Floor();
+            floor.baseFloor = false;
+            if (i == baseFloor) floor.baseFloor = true;
+            if (colleagueFloors.Contains(i)) floor.colleagueCount++;
+
+            floors.Add(floor);
+        }
+
+        // assign probabilities to floors
+        for (int i = 0; i < floors.Count; i++)
+        {
+            Floor updatedFloor = floors[i];
+            if (floors[i].baseFloor) updatedFloor.probability = 0.4f;
+            // TODO check if colleague floor is base floor
+            else if (floors[i].colleagueCount > 0) updatedFloor.probability = 0.3f / colleagueFloors.Count;
+            else updatedFloor.probability = 0.3f/(1 + colleagueFloors.Count);
+            floors[i] = updatedFloor;
+
+            Debug.Log("floor probability " + i + ": " + updatedFloor.probability);
+        }
+
+        List<float> globalProbabilities = new List<float>();
+
+        // count how many points on each floor
+        int[] numPointsByFloor = new int[FloorCount];
+
+        int count = 0;
+        int currentFloor = 0;
+        foreach (Transform transform in stationList)
+        {
+            for (int i = 0; i < FloorCount; i++)
+            {
+                if (transform.name.Contains(i.ToString()))
+                {
+                    if (currentFloor != i)
+                    {
+                        count = 0;
+                    }
+                    count++;
+                    currentFloor = i;
+                }
+            }
+            numPointsByFloor[currentFloor] = count;
+        }
+
+
+        currentFloor = 0;
+
+        int pointsOnFloor = numPointsByFloor[currentFloor];
+        float probabilityRemaining = floors[currentFloor].probability;
+
+        // assign probabilities to individual locations based on floor information
+        foreach (Transform transform in stationList)
+        {
+            float probability = 0.0f;
+
+            bool uniform = false;
+
+            // set global probabilities based on floor probabilities and individual places
+            for (int i = 0; i < FloorCount; i++)
+            {
+                if (transform.name.Contains(i.ToString()))
+                {
+                    if (i != currentFloor)
+                    {
+                        pointsOnFloor = numPointsByFloor[i];
+                        probabilityRemaining = floors[i].probability;
+                    }
+                    // if basefloor and basefloor has no colleague(s)
+                    if (floors[i].baseFloor && floors[i].colleagueCount <= 0)
+                    {
+                        if (transform.name.Contains("Main Office"))
+                        {
+                            probability = 0.7f * floors[i].probability;
+                        }
+                        else
+                        {
+                            probability = 0.3f * floors[i].probability / (numPointsByFloor[i] - 1);
+                        }
+                    }
+                    // if basefloor and basefloor has colleague(s)
+                    else if (floors[i].baseFloor && floors[i].colleagueCount > 0)
+                    {
+                        if (transform.name.Contains("Secondary Office"))
+                        {
+                            probability = 0.1f * floors[i].probability;
+                        }
+                        else
+                        {
+                            probability = 0.9f * floors[i].probability / (numPointsByFloor[i] - 1);
+                        }
+                    }
+                    // if not basefloor and floor has colleague(s)
+                    else if (floors[i].colleagueCount > 0)
+                    {
+                        if (transform.name.Contains("Main Office"))
+                        {
+                            probability = 0.7f * floors[i].probability;
+                        }
+                        else
+                        {
+                            probability = 0.3f*floors[i].probability / (numPointsByFloor[i] - 1);
+                        }
+                    }
+                    // if not basefloor and floor has no colleague(s)
+                    else
+                    {
+                        probability = floors[i].probability / numPointsByFloor[i];
+                    }
+                    currentFloor = i;
+                    break;
+                }
+            }
+
+            globalProbabilities.Add(probability);
+        }
+
+        float cumu = 0f;
+
+        for (int i = 0; i < globalProbabilities.Count; i++)
+        {
+            Debug.Log(stationList[i].name + " = " + globalProbabilities[i]);
+            cumu += globalProbabilities[i];
+        }
+
+        Debug.Log("Cumu = " + cumu);
+        //if there is only 1 point(or no points) we cannot create a useful transition matrix
+        if (numPoints <= 1) return null;
+
+        // create transition matrix
+        List<List<float>> TransitionMatrix = new List<List<float>>();
+
+        // populate each row with a list of floats based on globalProbabilities, except if col == row it is populated with a 0 
+        // a row constitutes a location in the globalProbabilites array
+        for (int row = 0; row < numPoints; row++)
+        {
+            TransitionMatrix.Add(new List<float>());
+            for (int col = 0; col < numPoints; col++)
+            {
+                if (col != row)
+                {
+                    TransitionMatrix[row].Add(globalProbabilities[col]);
+                }
+                else
+                {
+                    TransitionMatrix[row].Add(0f);
+                }
+            }
+        }
+
+        return TransitionMatrix;
+    }
+    // instantiate through all destinations transforms titles
+    // check through floor numbers
+    // if baseFloor and !colleagueFloor then pick a workspace at random (transform title containing "Office") for self and set to 70% floor probability
+    // then set toilet to 20% floor probability
+    // 
+    // if baseFloor and colleagueFloor then pick workspaces at random, one for self 60% floor probability and split 10% floor probability between others
+    // if !baseFloor and colleagueFloor then pick a workspace at random and set to 70% floor probability
+    //
+    // if !baseFloor set toilet to 10% floor probability
+    // ELSE use uniform probability
+
+
+
+    //return new List<List<float>>
+    //{
+    //    new List<float> // probability of A => (A,B,C,D)
+    //    {
+    //        0f, 0.2f, 0.3f, 0.5f
+    //    },
+    //    new List<float> // probability of B => (A,B,C,D)
+    //    {
+    //        0.2f, 0, 0.3f, 0.5f
+    //    },
+    //    new List<float> // probability of C => (A,B,C,D)
+    //    {
+    //        0.3f, 0.2f, 0, 0.5f
+    //    },
+    //    new List<float> // probability of D => (A,B,C,D)
+    //    {
+    //        0.3f, 0.2f, 0.5f, 0
+    //    },
+    //    new List<float> // probability of E => (A,B,C,D)
+    //    {
+    //        0.3f, 0.2f, 0, 0.5f
+    //    },
+    //    new List<float> // probability of F => (A,B,C,D)
+    //    {
+    //        0.2f, 0.3f, 0.5f, 0
+    //    }
+    //};
+
 
     void Start()
     {
@@ -108,7 +300,7 @@ public class AIMovement : MonoBehaviour
 
         agent.updateRotation = false;
         agent.velocity = Vector3.zero;
-        
+
         stationList = new List<Transform>();
         destinationList = new List<Transform>();
 
@@ -117,8 +309,10 @@ public class AIMovement : MonoBehaviour
             stationList.Add(dest);
         }
 
-        // TODO assert size of this array to number of destinations in editor
-        transitionMatrix = CreateUniformTransitionMatrix(stationList.Count);
+        //// TODO assert size of this array to number of destinations in editor
+        //transitionMatrix = CreateUniformTransitionMatrix(stationList.Count);
+
+        transitionMatrix = CreateTransitionMatrix(stationList.Count, myFloor, new List<int> { colleague1Floor, colleague2Floor });
 
         Transform destination = stationList[0];
         destinationList.Add(destination);
@@ -148,7 +342,7 @@ public class AIMovement : MonoBehaviour
     {
         //Debug.Log(currentTransform.GetSiblingIndex());
         List<float> cumulativeTransitionList = ToCumulativeTransitionList(transitionMatrix[currentTransform.GetSiblingIndex()]);
-        
+
         string listString = "";
         transitionMatrix[currentTransform.GetSiblingIndex()].ForEach(item => listString += (item + ", "));
 
@@ -188,7 +382,7 @@ public class AIMovement : MonoBehaviour
 
         return nextDestination;
     }
-    
+
     List<float> ToCumulativeTransitionList(List<float> transitionList)
     {
         List<float> cumulativeTransitionList = new List<float>();
@@ -269,7 +463,7 @@ public class AIMovement : MonoBehaviour
             //agent.destination = agent.transform.position + 0.1f * (agent.transform.right - agent.transform.forward);
             head.transform.Rotate(transform.up, -100f * Time.deltaTime);
         }
-        else if(IsInTransition && (TimeElapsed < (TransitionStartTime + timeToWait)))
+        else if (IsInTransition && (TimeElapsed < (TransitionStartTime + timeToWait)))
         {
             //agent.destination = agent.transform.position + 0.1f * (-agent.transform.forward);
             head.transform.Rotate(transform.up, 100f * Time.deltaTime);
